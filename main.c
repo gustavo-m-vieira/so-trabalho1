@@ -1,3 +1,4 @@
+// inspirado em https://gist.github.com/kyunghoj/6778988
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,7 +17,6 @@ int descritoresPipe[2];
 char buffer[MAXBUFFER];
 int comandoParaExecutar = 0;
 
-// inspirado em https://gist.github.com/kyunghoj/6778988
 static void lidar_SIGUSR1(int signo){
   quemSouEu = 1;
   
@@ -25,7 +25,7 @@ static void lidar_SIGUSR1(int signo){
   
   pid = fork();
 
-  if (pid == 0) { //sou o filho!
+  if (pid == 0) { //sou o filho, vou sortear um numero e mandar pro meu pai
     close(descritoresPipe[0]);
 
     time_t seed = time(NULL);
@@ -38,32 +38,57 @@ static void lidar_SIGUSR1(int signo){
     sprintf( randomNumberBuffer, "%d", randomNumber );
 
     write(descritoresPipe[1], randomNumberBuffer, 5);
+    close(descritoresPipe[1]);
   } else if (pid > 0) {// sou o pai, vou ler do filho o número sorteado
     quemSouEu = 0;
-    wait(NULL);
     close(descritoresPipe[1]);
+    wait(NULL);
     read(descritoresPipe[0], buffer, MAXBUFFER);
     sscanf(buffer, "%d", &comandoParaExecutar);
-    printf("The value that I received is %d.\n", comandoParaExecutar); // esse printf deve ser apagado
-    printf("Child pid is %d.\n", pid);
+    close(descritoresPipe[0]);
   } else {
-    printf("Falha ao lidar com SIGUSR1");
+    printf("Falha ao lidar com SIGUSR1.\n");
   }
 }
 
 static void lidar_SIGUSR2(int signo) {
+  quemSouEu = 2;
+  
+  pid = fork();
+
+  if (pid == 0) { //sou o filho, vou provavelmente realizar um ping
+    printf("Vamos ping(ar)!\n");
+
+    if (comandoParaExecutar == 0) { // tarefa 1 nunca foi chamada :/
+      printf("Não há comando a executar\n");
+    } else if (comandoParaExecutar % 2 == 0) { // número é par e diferente de 0
+      execlp("/bin/ping", "ping", "8.8.8.8", "-c", "5", NULL);
+    } else { // número é impar e diferente de 0
+      execlp("/bin/ping", "ping", "paris.testdebit.info", "-c", "5", "-i", "2", NULL);
+    }
+  } else if (pid > 0) {// sou o pai, vou esperar meu filho finalizar
+    quemSouEu = 0;
+    wait(NULL);
+  } else {
+    printf("Falha ao lidar com SIGUSR2.\n");
+  }
+}
+
+static void lidar_SIGTERM(int signo) {
+  printf("Finalizando o disparador...\n");
+  quemSouEu = 3;
 }
 
 int main(void) {
-  if (quemSouEu == 0) {
-    printf("My PID is %d.\n", getpid());
+  printf("My PID is %d.\n", getpid());
 
-    while(quemSouEu == 0) {
-      if (signal(SIGUSR1, lidar_SIGUSR1) == SIG_ERR)
-        fprintf(stderr, "can't catch SIGUSR1");
-      if (signal(SIGUSR2, lidar_SIGUSR2) == SIG_ERR)
-        fprintf(stderr, "can't catch SIGUSR2");
-
-    }
+  while(quemSouEu == 0) {
+    if (signal(SIGUSR1, lidar_SIGUSR1) == SIG_ERR)
+      fprintf(stderr, "can't catch SIGUSR1.\n");
+    if (signal(SIGUSR2, lidar_SIGUSR2) == SIG_ERR)
+      fprintf(stderr, "can't catch SIGUSR2.\n");
+    if (signal(SIGTERM, lidar_SIGTERM) == SIG_ERR)
+      fprintf(stderr, "can't catch SIGTERM.\n");
   }
+  return 0;
 }
